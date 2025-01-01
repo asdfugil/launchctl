@@ -22,46 +22,79 @@ on:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            sdk: iphoneos
+            target: "ios12.0"
+          - arch: arm64
+            sdk: appletvos
+            target: "tvos12.0"
+    runs-on: macos-15
     name: Build
-    runs-on: macos-12
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Setup environment
         run: |
-          echo "CC=xcrun -sdk iphoneos cc -arch arm64" >> $GITHUB_ENV
+          export MACOSX_SYSROOT="$(xcrun -sdk macosx --show-sdk-path)"
+          export TARGET_SYSROOT="$(xcrun -sdk ${{ matrix.sdk }} --show-sdk-path)"
+          echo "CC=$(xcrun --find cc)" >> $GITHUB_ENV
+          echo "CFLAGS=-g -Wextra -Wno-unused-parameter -flto=thin -Os -isystem ${TARGET_SYSROOT}/usr/include/c++/v1 -arch ${{ matrix.arch }} -mtargetos=${{ matrix.target }} -isysroot ${TARGET_SYSROOT} -isystem ${HOME}/include" >> $GITHUB_ENV
           echo "STRIP=xcrun -sdk iphoneos strip" >> $GITHUB_ENV
-          echo "CFLAGS=-I${HOME}/include -Os -flto=thin -Wextra -Wno-unused-parameter -miphoneos-version-min=12.0" >> $GITHUB_ENV
-          echo "LDFLAGS=-Os -flto=thin -miphoneos-version-min=12.0" >> $GITHUB_ENV
+          echo "LDFLAGS=-Os -flto=thin -mtargetos=${{ matrix.target }} -isysroot ${TARGET_SYSROOT}" >> $GITHUB_ENV
           gh release download -R ProcursusTeam/ldid -p ldid_macosx_x86_64
           install -m755 ldid_macosx_x86_64 ldid
           echo "${PWD}" >> $GITHUB_PATH
-          mkdir -p ${HOME}/include/sys
-          ln -s $(xcrun -sdk macosx --show-sdk-path)/usr/include/xpc ${HOME}/include/xpc
-          ln -s $(xcrun -sdk macosx --show-sdk-path)/usr/include/launch.h ${HOME}/include/launch.h
-          ln -s $(xcrun -sdk macosx --show-sdk-path)/usr/include/net ${HOME}/include/net
-          ln -s $(xcrun -sdk macosx --show-sdk-path)/usr/include/libproc.h ${HOME}/include/libproc.h
-          ln -s $(xcrun -sdk macosx --show-sdk-path)/usr/include/sys/proc_info.h ${HOME}/include/sys/proc_info.h
-          ln -s $(xcrun -sdk macosx --show-sdk-path)/usr/include/sys/kern_control.h ${HOME}/include/sys/kern_control.h
+          mkdir -p ${HOME}/include/{bsm,objc,os/internal,sys,firehose,CoreFoundation,FSEvents,IOKit/kext,libkern,kern,arm,{mach/,}machine,CommonCrypto,Security,CoreSymbolication,Kernel/{kern,IOKit,libkern},rpc,rpcsvc,xpc/private,ktrace,mach-o,dispatch}
+          cp -af ${MACOSX_SYSROOT}/usr/include/{arpa,bsm,hfs,net,xpc,netinet,servers,timeconv.h,launch.h,libproc.h} ${HOME}/include
+          cp -af ${MACOSX_SYSROOT}/usr/include/objc/objc-runtime.h ${HOME}/include/objc
+          cp -af ${MACOSX_SYSROOT}/usr/include/libkern/{OSDebug.h,OSKextLib.h,OSReturn.h,OSThermalNotification.h,OSTypes.h,machine} ${HOME}/include/libkern
+          cp -af ${MACOSX_SYSROOT}/usr/include/kern ${HOME}/include
+          cp -af ${MACOSX_SYSROOT}/usr/include/sys/{tty*,ptrace,proc_info,kern*,random,reboot,user,vnode,disk,vmmeter,conf}.h ${HOME}/include/sys
+          cp -af ${MACOSX_SYSROOT}/System/Library/Frameworks/Kernel.framework/Versions/Current/Headers/sys/disklabel.h ${HOME}/include/sys
+          cp -af ${MACOSX_SYSROOT}/System/Library/Frameworks/IOKit.framework/Headers/{AppleConvergedIPCKeys.h,IOBSD.h,IOCFBundle.h,IOCFPlugIn.h,IOCFURLAccess.h,IOKitServer.h,IORPC.h,IOSharedLock.h,IOUserServer.h,audio,avc,firewire,graphics,hid,hidsystem,i2c,iokitmig.h,kext,ndrvsupport,network,ps,pwr_mgt,sbp2,scsi,serial,storage,stream,usb,video} ${HOME}/include/IOKit
+          cp -af ${MACOSX_SYSROOT}/System/Library/Frameworks/Security.framework/Headers/{mds_schema,oidsalg,SecKeychainSearch,certextensions,Authorization,eisl,SecDigestTransform,SecKeychainItem,oidscrl,cssmcspi,CSCommon,cssmaci,SecCode,CMSDecoder,oidscert,SecRequirement,AuthSession,SecReadTransform,oids,cssmconfig,cssmkrapi,SecPolicySearch,SecAccess,cssmtpi,SecACL,SecEncryptTransform,cssmapi,cssmcli,mds,x509defs,oidsbase,SecSignVerifyTransform,cssmspi,cssmkrspi,SecTask,cssmdli,SecAsn1Coder,cssm,SecTrustedApplication,SecCodeHost,SecCustomTransform,oidsattr,SecIdentitySearch,cssmtype,SecAsn1Types,emmtype,SecTransform,SecTrustSettings,SecStaticCode,emmspi,SecTransformReadTransform,SecKeychain,SecDecodeTransform,CodeSigning,AuthorizationPlugin,cssmerr,AuthorizationTags,CMSEncoder,SecEncodeTransform,SecureDownload,SecAsn1Templates,AuthorizationDB,SecCertificateOIDs,cssmapple}.h ${HOME}/include/Security
+          cp -af ${MACOSX_SYSROOT}/usr/include/{ar,bootstrap,launch,libc,libcharset,localcharset,nlist,NSSystemDirectories,tzfile,vproc}.h ${HOME}/include
+          cp -af ${MACOSX_SYSROOT}/usr/include/mach/{*.defs,{mach_vm,shared_region}.h} ${HOME}/include/mach
+          cp -af ${MACOSX_SYSROOT}/usr/include/mach/machine/*.defs ${HOME}/include/mach/machine
+          cp -af ${MACOSX_SYSROOT}/usr/include/rpc/pmap_clnt.h ${HOME}/include/rpc
+          cp -af ${MACOSX_SYSROOT}/usr/include/rpcsvc/yp{_prot,clnt}.h ${HOME}/include/rpcsvc
+          cp -af ${TARGET_SYSROOT}/usr/include/mach/machine/thread_state.h ${HOME}/include/mach/machine
+          cp -af ${TARGET_SYSROOT}/usr/include/mach/arm ${HOME}/include/mach
+          cp -af ${MACOSX_SYSROOT}/System/Library/Frameworks/IOKit.framework/Headers/* ${HOME}/include/IOKit
+          sed -E s/'__IOS_PROHIBITED|__TVOS_PROHIBITED|__WATCHOS_PROHIBITED'//g < ${TARGET_SYSROOT}/usr/include/stdlib.h > ${HOME}/include/stdlib.h
+          sed -E s/'__IOS_PROHIBITED|__TVOS_PROHIBITED|__WATCHOS_PROHIBITED'//g < ${TARGET_SYSROOT}/usr/include/time.h > ${HOME}/include/time.h
+          sed -E s/'__IOS_PROHIBITED|__TVOS_PROHIBITED|__WATCHOS_PROHIBITED'//g < ${TARGET_SYSROOT}/usr/include/unistd.h > ${HOME}/include/unistd.h
+          sed -E s/'__IOS_PROHIBITED|__TVOS_PROHIBITED|__WATCHOS_PROHIBITED'//g < ${TARGET_SYSROOT}/usr/include/mach/task.h > ${HOME}/include/mach/task.h
+          sed -E s/'__IOS_PROHIBITED|__TVOS_PROHIBITED|__WATCHOS_PROHIBITED'//g < ${TARGET_SYSROOT}/usr/include/mach/mach_host.h > ${HOME}/include/mach/mach_host.h
+          sed -E s/'__IOS_PROHIBITED|__TVOS_PROHIBITED|__WATCHOS_PROHIBITED'//g < ${TARGET_SYSROOT}/usr/include/ucontext.h > ${HOME}/include/ucontext.h
+          sed -E s/'__IOS_PROHIBITED|__TVOS_PROHIBITED|__WATCHOS_PROHIBITED'//g < ${TARGET_SYSROOT}/usr/include/signal.h > ${HOME}/include/signal.h
+          sed -E /'__API_UNAVAILABLE'/d < ${TARGET_SYSROOT}/usr/include/pthread.h > ${HOME}/include/pthread.h
+          sed -i -E s/'__API_UNAVAILABLE\(.*\)'// ${HOME}/include/IOKit/IOKitLib.h
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build
-        run: make -j$(sysctl -n hw.ncpu)
+        run: |
+          make -j$(sysctl -n hw.ncpu)
+          mv launchctl launchctl_${{ matrix.sdk }}_${{ matrix.arch }}
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: launchctl
-          path: launchctl
+          name: launchctl_${{ matrix.sdk }}_${{ matrix.arch }}
+          path: launchctl_${{ matrix.sdk }}_${{ matrix.arch }}
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: ${{ github.event_name == 'release' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: launchctl
+          files: launchctl_${{ matrix.sdk }}_${{ matrix.arch }}
